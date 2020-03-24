@@ -16,24 +16,26 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class BLECipherComm {
-    final int AES_BLOCK_SIZE = 16;
+    public static final int AES_BLOCK_SIZE = 16;
+    public static final int AES256_KEY_SIZE = 32;
+    byte[] aesKey;
     byte[] aesIv;
 
-    private static BLECipherComm _instance = null;
-
-    private BLECipherComm()
+    public BLECipherComm()
     {
         aesIv = new byte[AES_BLOCK_SIZE];
     }
 
-    public static BLECipherComm getInstance()
-    {
-        if (_instance == null)
-            _instance = new BLECipherComm();
+    /*
+        private static BLECipherComm _instance = null;
+        public static BLECipherComm getInstance()
+        {
+            if (_instance == null)
+                _instance = new BLECipherComm();
 
-        return _instance;
-    }
-
+            return _instance;
+        }
+    */
     public void initIV(byte[] iv) throws IllegalBlockSizeException {
         if (iv.length != AES_BLOCK_SIZE)
             throw new IllegalBlockSizeException();
@@ -41,12 +43,19 @@ public class BLECipherComm {
         aesIv = iv;
     }
 
+    public void initKey(byte[] key) throws InvalidKeyException {
+        if (key.length != AES256_KEY_SIZE)
+            throw new InvalidKeyException();
 
-    public byte[] decryptMessage(byte[] key, byte[] ciphertext)
+        aesKey = key;
+    }
+
+
+    public byte[] decryptMessage(byte[] ciphertext)
     {
         try {
             Cipher aesCipher = Cipher.getInstance("AES/CBC/NoPadding");
-            aesCipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES256"), new IvParameterSpec(aesIv));
+            aesCipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(aesKey, "AES256"), new IvParameterSpec(aesIv));
 
             byte[] plaintext = aesCipher.doFinal(ciphertext);
 
@@ -77,7 +86,7 @@ public class BLECipherComm {
         return null;
     }
 
-    public byte[] encryptMessage(byte[] key, byte[] data)
+    public byte[] encryptMessage(byte[] data)
     {
         /* Create padded buffer */
         int len = data.length + 1; /* + 1 for padding byte */
@@ -94,8 +103,8 @@ public class BLECipherComm {
         System.arraycopy(data, 0, plaintext, 1, data.length);
 
         String strKey = "";
-        for (int i = 0; i < key.length; ++i)
-            strKey += String.format("%x ", key[i]);
+        for (int i = 0; i < aesKey.length; ++i)
+            strKey += String.format("%x ", aesKey[i]);
 
         // Log.d("BLE", String.format("[CIPHER] AES Key: %s", strKey));
 
@@ -108,7 +117,7 @@ public class BLECipherComm {
         /* Encrypt */
         try {
             Cipher aesCipher = Cipher.getInstance("AES/CBC/NoPadding");
-            aesCipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES256"), new IvParameterSpec(aesIv));
+            aesCipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aesKey, "AES256"), new IvParameterSpec(aesIv));
 
             byte[] ciphertext = aesCipher.doFinal(plaintext);
 

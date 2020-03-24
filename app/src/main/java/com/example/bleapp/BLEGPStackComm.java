@@ -52,17 +52,7 @@ public class BLEGPStackComm
     private BLEGPStackComm() {
         connections = new HashMap<>();
 
-        byte[] iv = new byte[BLECipherComm.getInstance().AES_BLOCK_SIZE];
-        for (int i = 0; i < BLECipherComm.getInstance().AES_BLOCK_SIZE; ++i)
-        {
-            iv[i] = 0;
-        }
 
-        try {
-            BLECipherComm.getInstance().initIV(iv);
-        } catch (IllegalBlockSizeException e) {
-            Log.d("BLE", "[Cipher] Invalid IV size");
-        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
@@ -172,6 +162,7 @@ public class BLEGPStackComm
                 for (BluetoothGattService s : services) {
                     Log.d("BLE", String.format("[BLE]\t\t\t\tService: %x\n", s.getUuid().getMostSignificantBits() >> 32));
                     List<BluetoothGattCharacteristic> chars = s.getCharacteristics();
+                    BluetoothGattCharacteristic bleWritableCharacteristic = null;
 
                     for (BluetoothGattCharacteristic c : chars) {
                         Log.d("BLE", String.format("[BLE]\t\t\t\t\t\tCharacteristic: %x\n", c.getUuid().getMostSignificantBits() >> 32));
@@ -179,7 +170,6 @@ public class BLEGPStackComm
                         if ((c.getProperties() & (BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) != 0)
                         {
                             /* Setup lower layer connection parameters */
-                            BLEFragmentComm.getInstance().setupConnection(gatt, c);
                             bleTxCharacteristic = c;
 
                             Log.d("BLE", "[BLE]\t\t\t\t\t\t\t\tFound writable characteristic.\n");

@@ -17,8 +17,6 @@ public class BLEFragmentComm {
     private final int FRAGMENT_OFFSET_DATA = FRAGMENT_OFFSET_TOT_LEN + FRAGMENT_TOT_LEN_SIZE;
 
 
-    private static BLEFragmentComm _instance = null;
-
     private int pkt_ids;
     private BLEFragment[] in_frags;
 
@@ -31,7 +29,7 @@ public class BLEFragmentComm {
     private BluetoothGatt bleGattConn;
     private BluetoothGattCharacteristic bleGattTxCharacteristic;
 
-    private BLEFragmentComm()
+    public BLEFragmentComm()
     {
         pkt_ids = 0;
         in_frags = new BLEFragment[MAX_FRAGMENTS];
@@ -72,6 +70,9 @@ public class BLEFragmentComm {
         bleGattTxCharacteristic = null;
     }
 
+    /*
+    private static BLEFragmentComm _instance = null;
+
     public static BLEFragmentComm getInstance()
     {
         if (_instance == null)
@@ -81,6 +82,7 @@ public class BLEFragmentComm {
 
         return _instance;
     }
+     */
 
     public void setupConnection(BluetoothGatt g, BluetoothGattCharacteristic c)
     {

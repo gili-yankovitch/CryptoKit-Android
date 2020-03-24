@@ -14,6 +14,8 @@ public class BLEGPConnection {
     private BluetoothDevice bleDevice;
     private BluetoothGatt bleGattConn;
     private BluetoothGattCharacteristic bleTxCharacteristic;
+    private BLECipherComm bleCipherLayer;
+    private BLEFragmentComm bleFragmentLayer;
 
     public BLEGPConnection(Context c, BluetoothDevice device, BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, BLEAppCallback callback)
     {
@@ -22,6 +24,9 @@ public class BLEGPConnection {
         bleDevice = device;
         bleGattConn = gatt;
         bleTxCharacteristic = characteristic;
+        bleCipherLayer = new BLECipherComm();
+        bleFragmentLayer = new BLEFragmentComm();
+        bleFragmentLayer.setupConnection(gatt, characteristic);
     }
 
     public BluetoothDevice getDevice()
@@ -32,6 +37,11 @@ public class BLEGPConnection {
     public BluetoothGatt getBleGattConnection()
     {
         return bleGattConn;
+    }
+
+    public BLECipherComm getCipher()
+    {
+        return bleCipherLayer;
     }
 
     public BluetoothGattCharacteristic getBleTxCharacteristic()
@@ -46,13 +56,14 @@ public class BLEGPConnection {
             bleGattConn.disconnect();
 
         BLEGPStackComm.getInstance().Disconnect(this);
+        this.bleFragmentLayer.reset();
         bleGattConn = null;
         bleTxCharacteristic = null;
     }
 
     public void Receive(byte[] data)
     {
-        byte[] reassembled = BLEFragmentComm.getInstance().ReassembleFragment(data);
+        byte[] reassembled = bleFragmentLayer.ReassembleFragment(data);
 
         if (reassembled == null)
         {
@@ -61,7 +72,7 @@ public class BLEGPConnection {
         }
 
         /* Full packet. Decrypt. */
-        byte[] plaintext = BLECipherComm.getInstance().decryptMessage(CommPasswordManager.getInstance().getCommKey(CommPasswordManager.getInstance().loadPassword(appContext).getBytes()), reassembled);
+        byte[] plaintext = bleCipherLayer.decryptMessage(reassembled);
 
         /* Send to upper layer */
         appCallback.BLEReceiveData(this, plaintext);
@@ -70,10 +81,10 @@ public class BLEGPConnection {
     public void Send(byte[] data)
     {
         /* First, encrypt */
-        byte[] ciphertext = BLECipherComm.getInstance().encryptMessage(CommPasswordManager.getInstance().getCommKey(CommPasswordManager.getInstance().loadPassword(appContext).getBytes()), data);
+        byte[] ciphertext = bleCipherLayer.encryptMessage(data);
 
         /* Then, fragment */
-        final byte[][] fragments = BLEFragmentComm.getInstance().FragmentData(ciphertext);
+        final byte[][] fragments = bleFragmentLayer.FragmentData(ciphertext);
 
         new Thread() {
             public void run()

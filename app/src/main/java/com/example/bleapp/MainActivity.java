@@ -3,17 +3,7 @@ package com.example.bleapp;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
-import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
@@ -25,25 +15,23 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import java.io.FileNotFoundException;
 import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.util.List;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.spec.SecretKeySpec;
-
-import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
 
 public class MainActivity extends AppCompatActivity {
-    final String DEVICE_NAME = "CryptoKit";
+    public static final int INITIAL_SETUP_REQUEST_CODE = 0;
+    public static final int LOGIN_REQUEST_CODE = 1;
+
+    private final String DEVICE_NAME = "CryptoKit";
 
     TextView resultsView;
     Button startScanningButton;
     BLEGPConnection bleGPConn = null;
+    String pin = null;
 
     private enum ButtonState
     {
@@ -54,18 +42,52 @@ public class MainActivity extends AppCompatActivity {
 
     private ButtonState btnState = ButtonState.E_START_SCAN;
 
-    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void requestLoginPin()
+    {
+        Intent newPinIntent = new Intent(this, InputPinPopup.class);
+        newPinIntent.putExtra("State", InputPinPopup.InputPurpose.E_LOGIN_INPUT);
+
+        startActivityForResult(newPinIntent, LOGIN_REQUEST_CODE);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // CommPasswordManager.getInstance().reset(this);
+
+        if (!CommPasswordManager.getInstance().isInitialized(this))
+        {
+            Log.d("BLEApp", "[PIN] Setup");
+
+            /* If this is the first time using the application, prompt for generating a password */
+            Intent newPinIntent = new Intent(this, InputPinPopup.class);
+            newPinIntent.putExtra("State", InputPinPopup.InputPurpose.E_INITIAL_SETUP);
+
+            startActivityForResult(newPinIntent, INITIAL_SETUP_REQUEST_CODE);
+        }
+        else
+        {
+            requestLoginPin();
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void initSuccessfulPin() throws InvalidKeyException
+    {
         /* Password field */
         final EditText txtPassword = (EditText) this.findViewById(R.id.txtPassword);
 
         /* Load password if exists */
-        txtPassword.setText(CommPasswordManager.getInstance().loadPassword(this));
-
+        try
+        {
+            txtPassword.setText(CommPasswordManager.getInstance().loadPassword(this, pin));
+        }
+        catch (FileNotFoundException e)
+        {
+            /* Do nothing for now... */
+        }
 
         /* Register save event */
         txtPassword.addTextChangedListener(new TextWatcher() {
@@ -84,7 +106,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.d("BLEApp", "[PASSWD] Key stroke");
 
                 /* Save content to file */
-                CommPasswordManager.getInstance().savePassword(MainActivity.this, txtPassword.getText().toString());
+                CommPasswordManager.getInstance().savePassword(MainActivity.this, txtPassword.getText().toString(), pin);
             }
         });
 
@@ -128,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
                     MainActivity.this.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
+                            resultsView.append("Connection failed.\n");
                             btnState = ButtonState.E_START_SCAN;
                             startScanningButton.setText("Scan");
                         }
@@ -138,6 +161,29 @@ public class MainActivity extends AppCompatActivity {
                 public void BLEConnectionSuccess(final BLEGPConnection conn) {
                     /* Save connection */
                     bleGPConn = conn;
+
+                    /* Initialize IV and Key */
+                    try {
+                        byte[] iv = new byte[BLECipherComm.AES_BLOCK_SIZE];
+                        for (int i = 0; i < BLECipherComm.AES_BLOCK_SIZE; ++i)
+                        {
+                            iv[i] = 0;
+                        }
+
+                        conn.getCipher().initIV(iv);
+                    } catch (IllegalBlockSizeException e) {
+                        Log.d("BLE", "[Cipher] Invalid IV size");
+                    }
+
+                    try {
+                        conn.getCipher().initKey(CommPasswordManager.getInstance().getCommKey(CommPasswordManager.getInstance().loadPassword(MainActivity.this, pin).getBytes()));
+                    } catch (InvalidKeyException e) {
+                        Log.d("BLE", "[Cipher] Invalid AES256 Key size");
+                    }
+                    catch (FileNotFoundException e)
+                    {
+                        Log.d("BLE", "[Cipher] Password was not initialized.");
+                    }
 
                     /* Change button (*/
                     MainActivity.this.runOnUiThread(new Runnable() {
@@ -166,7 +212,7 @@ public class MainActivity extends AppCompatActivity {
                     btnState = ButtonState.E_STOP_SCAN;
                     startScanningButton.setText("Stop Scanning");
 
-                    resultsView.setText("Starting scan (v3)...\n");
+                    resultsView.setText("Starting scan (v4)...\n");
 
                     /* Connect to the device */
                     BLEGPStackComm.getInstance().Connect(DEVICE_NAME, connectionCallback);
@@ -178,7 +224,8 @@ public class MainActivity extends AppCompatActivity {
 
                     resultsView.append("Stopped Scanning\n");
 
-                    bleGPConn.Disconnect();
+                    if (bleGPConn != null)
+                        bleGPConn.Disconnect();
 
                     bleGPConn = null;
                 }
@@ -189,7 +236,10 @@ public class MainActivity extends AppCompatActivity {
 
                     resultsView.append("Disconnected.\n");
 
-                    BLEFragmentComm.getInstance().reset();
+                    if (bleGPConn != null)
+                        bleGPConn.Disconnect();
+
+                    bleGPConn = null;
                 }
             }
         });
@@ -211,5 +261,38 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == INITIAL_SETUP_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                pin = data.getStringExtra("Result");
+
+                try {
+                    initSuccessfulPin();
+                } catch (InvalidKeyException e) {
+                    /* First time it won't happen...*/
+                }
+            }
+        }
+        else if (requestCode == LOGIN_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                pin = data.getStringExtra("Result");
+
+                try {
+                    initSuccessfulPin();
+                } catch (InvalidKeyException e) {
+                    /* Pin was wrong. */
+                    pin = null;
+
+                    Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show();
+
+                    /* If decryption failed, request pin AGAIN */
+                    requestLoginPin();
+                }
+            }
+        }
     }
 }
